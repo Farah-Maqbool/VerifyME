@@ -1,52 +1,62 @@
+import os
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
+from occlusion import classify_occlusion
 
-mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+BaseOptions = mp_python.BaseOptions
+FaceLandmarker = vision.FaceLandmarker
+FaceLandmarkerOptions = vision.FaceLandmarkerOptions
+VisionRunningMode = vision.RunningMode
+
+options = FaceLandmarkerOptions(
+    base_options=BaseOptions(model_asset_path="face_landmarker.task"),
+    running_mode=VisionRunningMode.VIDEO,
+    num_faces=1
+)
+
+landmarker = FaceLandmarker.create_from_options(options)
 
 cap = cv2.VideoCapture(0)
+frame_timestamp_ms = 0
 
-with mp_face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
-) as face_mesh:
+print("Face Landmarker + Occlusion Test running. Press 'q' to quit.")
 
-    print("Face Mesh running. Press 'q' to quit.")
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: failed to grab frame")
-            break
+    h, w = frame.shape[:2]
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-        # MediaPipe expects RGB, OpenCV gives BGR
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb_frame)
+    frame_timestamp_ms += 33  # approx for 30fps
+    result = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
 
-        if results.multi_face_landmarks:
-            for face_landmarks in results.multi_face_landmarks:
-                mp_drawing.draw_landmarks(
-                    image=frame,
-                    landmark_list=face_landmarks,
-                    connections=mp_face_mesh.FACEMESH_TESSELATION,
-                    landmark_drawing_spec=None,
-                    connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
-                )
-                mp_drawing.draw_landmarks(
-                    image=frame,
-                    landmark_list=face_landmarks,
-                    connections=mp_face_mesh.FACEMESH_CONTOURS,
-                    landmark_drawing_spec=None,
-                    connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_contours_style()
-                )
+    status_text = "No face detected"
 
-        cv2.imshow("Face Mesh Test", frame)
+    if result.face_landmarks:
+        landmarks = result.face_landmarks[0]
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # draw landmarks manually
+        for lm in landmarks:
+            x, y = int(lm.x * w), int(lm.y * h)
+            cv2.circle(frame, (x, y), 1, (0, 255, 0), -1)
+
+        status = classify_occlusion(landmarks, frame, debug=True)
+        status_text = f"Status: {status}"
+
+    cv2.putText(frame, status_text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
+                1, (0, 255, 0), 2)
+
+    cv2.imshow("Face Landmarker + Occlusion Test", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
 cap.release()
 cv2.destroyAllWindows()
