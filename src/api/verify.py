@@ -17,7 +17,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from occlusion import classify_occlusion
 from crop_utils import crop_full_face_aligned, crop_periocular_aligned
 from embedder import get_embedding
-from matcher import find_best_match
+from matching import find_best_match
 
 router = APIRouter()
 

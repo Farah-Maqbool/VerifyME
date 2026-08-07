@@ -1,3 +1,6 @@
+import os
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "mask_detector.model")
+
 import cv2
 import numpy as np
 import tensorflow as tf
@@ -7,7 +10,8 @@ LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154]
 RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 381]
 MOUTH_REGION = [61, 291, 13, 14, 78, 308, 17, 0]
 
-mask_net = tf_keras.models.load_model("mask_detector.model")
+
+mask_net = tf_keras.models.load_model(_MODEL_PATH)
 
 CONFIDENCE_FLOOR = 70.0  # percent — below this, treat as uncertain
 
