@@ -3,7 +3,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'crop'))
-
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'liveness'))
 
 import cv2
 import mediapipe as mp
@@ -12,6 +12,7 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 from occlusion import classify_occlusion, get_full_face_box
 from crop_utils import crop_full_face_aligned, crop_periocular_aligned
+from liveness_check import BlinkDetector, get_average_ear
 
 
 BaseOptions = mp_python.BaseOptions
@@ -39,6 +40,8 @@ prev_eye_center = None
 captured = False
 final_result = None
 
+blink_detector = BlinkDetector()
+
 REFERENCE_LANDMARKS = [33, 263]  # left eye corner, right eye corner
 
 
@@ -48,7 +51,7 @@ def get_eye_center(landmarks, w, h):
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
-print("Position your face in frame and hold still. Press 'q' to quit.")
+print("Position your face in frame, hold still, and blink naturally. Press 'q' to quit.")
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -71,7 +74,6 @@ while cap.isOpened():
             x, y = int(lm.x * w), int(lm.y * h)
             cv2.circle(frame, (x, y), 1, (0, 255, 0), -1)
 
-        # Diagnostic box now matches what's actually classified — the full face
         face_box = get_full_face_box(landmarks, w, h, padding=20)
         cv2.rectangle(frame, (face_box[0], face_box[1]), (face_box[2], face_box[3]), (0, 0, 255), 2)
 
@@ -85,10 +87,15 @@ while cap.isOpened():
                 stable_frame_count = 0
         prev_eye_center = eye_center
 
-        progress = min(stable_frame_count, STABILITY_FRAMES_REQUIRED)
-        status_text = f"Hold still... {progress}/{STABILITY_FRAMES_REQUIRED}"
+        # --- Liveness: update blink detector every frame ---
+        ear = get_average_ear(landmarks, w, h)
+        blink_detector.update(ear)
 
-        if stable_frame_count >= STABILITY_FRAMES_REQUIRED:
+        progress = min(stable_frame_count, STABILITY_FRAMES_REQUIRED)
+        blink_status = "Blink detected" if blink_detector.has_blinked() else "Waiting for blink..."
+        status_text = f"Hold still... {progress}/{STABILITY_FRAMES_REQUIRED} | {blink_status}"
+
+        if stable_frame_count >= STABILITY_FRAMES_REQUIRED and blink_detector.has_blinked():
             final_result = classify_occlusion(landmarks, frame, debug=True)
             if final_result == "full_face":
                 crop = crop_full_face_aligned(frame, landmarks)
@@ -100,13 +107,13 @@ while cap.isOpened():
             if crop is not None:
                 cv2.imshow("Cropped Region", crop)
             captured = True
-            status_text = f"CAPTURED - Status: {final_result}"
+            status_text = f"CAPTURED (LIVE) - Status: {final_result}"
 
     elif captured:
         status_text = f"CAPTURED - Status: {final_result} (press 'r' to retry)"
 
     cv2.putText(frame, status_text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                0.8, (0, 255, 0), 2)
+                0.7, (0, 255, 0), 2)
 
     cv2.imshow("Face Landmarker + Occlusion Test", frame)
 
@@ -118,6 +125,7 @@ while cap.isOpened():
         stable_frame_count = 0
         prev_eye_center = None
         final_result = None
+        blink_detector.reset()
 
 cap.release()
 cv2.destroyAllWindows()
