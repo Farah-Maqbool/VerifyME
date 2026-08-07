@@ -11,7 +11,8 @@ import math
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 from occlusion import classify_occlusion, get_full_face_box
-from crop_utils import crop_full_face, crop_periocular
+from crop_utils import crop_full_face_aligned, crop_periocular_aligned
+
 
 BaseOptions = mp_python.BaseOptions
 FaceLandmarker = vision.FaceLandmarker
@@ -90,9 +91,9 @@ while cap.isOpened():
         if stable_frame_count >= STABILITY_FRAMES_REQUIRED:
             final_result = classify_occlusion(landmarks, frame, debug=True)
             if final_result == "full_face":
-                crop = crop_full_face(frame, landmarks)
+                crop = crop_full_face_aligned(frame, landmarks)
             elif final_result == "eyes_only":
-                crop = crop_periocular(frame, landmarks)
+                crop = crop_periocular_aligned(frame, landmarks)
             else:
                 crop = None
 

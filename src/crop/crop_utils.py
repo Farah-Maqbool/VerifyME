@@ -1,115 +1,86 @@
-import cv2
+from insightface.utils import face_align
 import numpy as np
 
-# Landmark index groups (MediaPipe Face Landmarker, 468/478-point model)
-LEFT_EYE = [33, 133, 160, 159, 158, 144, 153, 154]
-RIGHT_EYE = [362, 263, 387, 386, 385, 373, 380, 381]
-LEFT_EYEBROW = [70, 63, 105, 66, 107, 55, 65]
-RIGHT_EYEBROW = [300, 293, 334, 296, 336, 285, 295]
-
-# Eye corner landmarks, used as a stable reference for alignment/scale
-LEFT_EYE_OUTER = 33
-RIGHT_EYE_OUTER = 263
+# MediaPipe landmark indices approximating the 5 standard ArcFace alignment points
+LEFT_EYE_CENTER_IDX = [33, 133, 160, 159, 158, 144, 153, 154]
+RIGHT_EYE_CENTER_IDX = [362, 263, 387, 386, 385, 373, 380, 381]
+NOSE_TIP_IDX = 1
+LEFT_MOUTH_CORNER_IDX = 61
+RIGHT_MOUTH_CORNER_IDX = 291
 
 
-def _get_bounding_box(landmarks, indices, frame_width, frame_height, padding=20):
+def get_5_point_landmarks(landmarks, w, h):
+    def avg_point(indices):
+        xs = [landmarks[i].x * w for i in indices]
+        ys = [landmarks[i].y * h for i in indices]
+        return [sum(xs) / len(xs), sum(ys) / len(ys)]
+
+    left_eye = avg_point(LEFT_EYE_CENTER_IDX)
+    right_eye = avg_point(RIGHT_EYE_CENTER_IDX)
+    nose = [landmarks[NOSE_TIP_IDX].x * w, landmarks[NOSE_TIP_IDX].y * h]
+    left_mouth = [landmarks[LEFT_MOUTH_CORNER_IDX].x * w, landmarks[LEFT_MOUTH_CORNER_IDX].y * h]
+    right_mouth = [landmarks[RIGHT_MOUTH_CORNER_IDX].x * w, landmarks[RIGHT_MOUTH_CORNER_IDX].y * h]
+
+    return np.array([left_eye, right_eye, nose, left_mouth, right_mouth], dtype=np.float32)
+
+
+def crop_full_face_aligned(frame, landmarks, output_size=112):
     """
-    Returns a pixel-space bounding box (x_min, y_min, x_max, y_max) around the
-    given landmark indices, expanded by `padding` pixels on each side and
-    clamped to the frame boundaries.
+    Produces a properly aligned 112x112 face crop, matching the exact
+    preprocessing ArcFace-based models (like our w600k_r50 recognition
+    model) were trained on. Use this instead of crop_full_face() when
+    the output is going into get_embedding().
     """
-    xs = [landmarks[i].x * frame_width for i in indices]
-    ys = [landmarks[i].y * frame_height for i in indices]
-
-    x_min = max(int(min(xs)) - padding, 0)
-    x_max = min(int(max(xs)) + padding, frame_width)
-    y_min = max(int(min(ys)) - padding, 0)
-    y_max = min(int(max(ys)) + padding, frame_height)
-
-    return x_min, y_min, x_max, y_max
+    h, w = frame.shape[:2]
+    kps = get_5_point_landmarks(landmarks, w, h)
+    aligned = face_align.norm_crop(frame, kps, image_size=output_size)
+    return aligned
 
 
-def _safe_crop(frame, box):
+
+import cv2
+
+def crop_periocular_aligned(frame, landmarks, output_size=112):
     """
-    Crops `frame` to `box` (x_min, y_min, x_max, y_max). Returns None if the
-    resulting region is empty (e.g. a degenerate/zero-size box).
+    Produces an aligned periocular (eyes-only) crop, using ONLY eye
+    landmarks for alignment — since nose/mouth landmarks are unreliable
+    or covered when the face is occluded (e.g. niqab). Rotates the crop
+    so the eyes are level, then scales/crops to a consistent size.
     """
-    x_min, y_min, x_max, y_max = box
+    h, w = frame.shape[:2]
+
+    def avg_point(indices):
+        xs = [landmarks[i].x * w for i in indices]
+        ys = [landmarks[i].y * h for i in indices]
+        return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+    left_eye = avg_point(LEFT_EYE_CENTER_IDX)
+    right_eye = avg_point(RIGHT_EYE_CENTER_IDX)
+
+    # Angle to rotate so the eye line is horizontal
+    dy = right_eye[1] - left_eye[1]
+    dx = right_eye[0] - left_eye[0]
+    angle = np.degrees(np.arctan2(dy, dx))
+
+    eye_center = ((left_eye[0] + right_eye[0]) / 2, (left_eye[1] + right_eye[1]) / 2)
+
+    rot_matrix = cv2.getRotationMatrix2D(eye_center, angle, 1.0)
+    rotated = cv2.warpAffine(frame, rot_matrix, (w, h))
+
+    # Crop around the eye region post-rotation
+    inter_eye_dist = np.hypot(dx, dy)
+    box_half = inter_eye_dist * 1.8  # margin around the eyes
+
+    x_min = max(int(eye_center[0] - box_half), 0)
+    x_max = min(int(eye_center[0] + box_half), w)
+    y_min = max(int(eye_center[1] - box_half * 0.7), 0)
+    y_max = min(int(eye_center[1] + box_half * 0.7), h)
+
     if x_max <= x_min or y_max <= y_min:
         return None
-    region = frame[y_min:y_max, x_min:x_max]
-    if region.size == 0:
-        return None
-    return region
 
-
-def crop_full_face(frame, landmarks, output_size=224, padding=20):
-    """
-    Crops the whole face region from `frame` using all detected landmarks,
-    and resizes it to a fixed (output_size x output_size) square image.
-
-    frame: the raw BGR camera frame (numpy array)
-    landmarks: list of landmark objects from result.face_landmarks[0]
-               (MediaPipe Tasks API format, each with .x / .y in [0, 1])
-    output_size: side length (pixels) of the returned square crop
-    padding: extra margin (pixels) added around the tightest bounding box
-
-    Returns a resized BGR image (numpy array), or None if cropping failed.
-    """
-    h, w = frame.shape[:2]
-    all_indices = list(range(len(landmarks)))
-    box = _get_bounding_box(landmarks, all_indices, w, h, padding=padding)
-
-    region = _safe_crop(frame, box)
-    if region is None:
+    cropped = rotated[y_min:y_max, x_min:x_max]
+    if cropped.size == 0:
         return None
 
-    resized = cv2.resize(region, (output_size, output_size))
-    return resized
-
-
-def crop_periocular(frame, landmarks, output_size=224, padding=15):
-    """
-    Crops just the eye region (both eyes + eyebrows + immediate surrounding
-    skin) from `frame`, and resizes it to a fixed (output_size x output_size)
-    square image. Used when the lower face is covered (e.g. niqab) and only
-    the eyes are available for verification.
-
-    frame: the raw BGR camera frame (numpy array)
-    landmarks: list of landmark objects from result.face_landmarks[0]
-    output_size: side length (pixels) of the returned square crop
-    padding: extra margin (pixels) added around the tightest bounding box
-
-    Returns a resized BGR image (numpy array), or None if cropping failed.
-    """
-    h, w = frame.shape[:2]
-    indices = LEFT_EYE + RIGHT_EYE + LEFT_EYEBROW + RIGHT_EYEBROW
-    box = _get_bounding_box(landmarks, indices, w, h, padding=padding)
-
-    region = _safe_crop(frame, box)
-    if region is None:
-        return None
-
-    resized = cv2.resize(region, (output_size, output_size))
-    return resized
-
-
-def get_eye_alignment_angle(landmarks, w, h):
-    """
-    Returns the rotation angle (in degrees) of the line connecting the two
-    outer eye corners, relative to horizontal. Useful later for rotating a
-    crop so the eyes are level before generating an embedding — a tilted
-    head can otherwise hurt embedding consistency.
-
-    landmarks: list of landmark objects from result.face_landmarks[0]
-    """
-    left = landmarks[LEFT_EYE_OUTER]
-    right = landmarks[RIGHT_EYE_OUTER]
-
-    left_x, left_y = left.x * w, left.y * h
-    right_x, right_y = right.x * w, right.y * h
-
-    dx = right_x - left_x
-    dy = right_y - left_y
-    angle = np.degrees(np.arctan2(dy, dx))
-    return angle
+    return cv2.resize(cropped, (output_size, output_size))
