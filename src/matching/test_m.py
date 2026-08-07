@@ -28,7 +28,7 @@ options = FaceLandmarkerOptions(
 landmarker = FaceLandmarker.create_from_options(options)
 
 # use a DIFFERENT photo of the same person you enrolled as "EMP001"
-frame = cv2.imread("../embeddings/d_2.jpeg")
+frame = cv2.imread("../embeddings/S_1.jpeg")
 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 result = landmarker.detect(mp_image)

@@ -41,12 +41,6 @@ def crop_full_face_aligned(frame, landmarks, output_size=112):
 import cv2
 
 def crop_periocular_aligned(frame, landmarks, output_size=112):
-    """
-    Produces an aligned periocular (eyes-only) crop, using ONLY eye
-    landmarks for alignment — since nose/mouth landmarks are unreliable
-    or covered when the face is occluded (e.g. niqab). Rotates the crop
-    so the eyes are level, then scales/crops to a consistent size.
-    """
     h, w = frame.shape[:2]
 
     def avg_point(indices):
@@ -57,7 +51,6 @@ def crop_periocular_aligned(frame, landmarks, output_size=112):
     left_eye = avg_point(LEFT_EYE_CENTER_IDX)
     right_eye = avg_point(RIGHT_EYE_CENTER_IDX)
 
-    # Angle to rotate so the eye line is horizontal
     dy = right_eye[1] - left_eye[1]
     dx = right_eye[0] - left_eye[0]
     angle = np.degrees(np.arctan2(dy, dx))
@@ -67,14 +60,17 @@ def crop_periocular_aligned(frame, landmarks, output_size=112):
     rot_matrix = cv2.getRotationMatrix2D(eye_center, angle, 1.0)
     rotated = cv2.warpAffine(frame, rot_matrix, (w, h))
 
-    # Crop around the eye region post-rotation
     inter_eye_dist = np.hypot(dx, dy)
-    box_half = inter_eye_dist * 1.8  # margin around the eyes
 
-    x_min = max(int(eye_center[0] - box_half), 0)
-    x_max = min(int(eye_center[0] + box_half), w)
-    y_min = max(int(eye_center[1] - box_half * 0.7), 0)
-    y_max = min(int(eye_center[1] + box_half * 0.7), h)
+    # Tightened: much closer crop around just the eye region
+    half_width = inter_eye_dist * 1.0     # was 1.8 — too wide
+    half_height_top = inter_eye_dist * 0.6   # room above for eyebrows
+    half_height_bottom = inter_eye_dist * 0.5  # room below for upper cheek/under-eye
+
+    x_min = max(int(eye_center[0] - half_width), 0)
+    x_max = min(int(eye_center[0] + half_width), w)
+    y_min = max(int(eye_center[1] - half_height_top), 0)
+    y_max = min(int(eye_center[1] + half_height_bottom), h)
 
     if x_max <= x_min or y_max <= y_min:
         return None

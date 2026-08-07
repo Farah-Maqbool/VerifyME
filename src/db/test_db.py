@@ -27,7 +27,7 @@ options = FaceLandmarkerOptions(
 )
 landmarker = FaceLandmarker.create_from_options(options)
 
-frame = cv2.imread("../embeddings/S_1.jpeg")  # your enrollment photo
+frame = cv2.imread("../embeddings/d_2.jpeg")  # your enrollment photo
 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 result = landmarker.detect(mp_image)
