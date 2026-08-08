@@ -64,3 +64,33 @@ button:disabled {
     background: #4a1e1e;
     color: #ff7f7f;
 }
+
+
+.form-fields {
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.form-fields input {
+    padding: 10px;
+    font-size: 15px;
+    border-radius: 6px;
+    border: 1px solid #444;
+    background: #1a1a1a;
+    color: #f0f0f0;
+}
+
+.link-row {
+    margin-top: 15px;
+}
+
+.link-row a {
+    color: #7fbfff;
+    text-decoration: none;
+}
+
+.link-row a:hover {
+    text-decoration: underline;
+}

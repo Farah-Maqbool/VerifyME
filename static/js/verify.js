@@ -1,6 +1,5 @@
 const captureBtn = document.getElementById('captureBtn');
 const canvas = document.getElementById('canvas');
-const video = document.getElementById('video');
 const resultBox = document.getElementById('result');
 
 captureBtn.addEventListener('click', async () => {
