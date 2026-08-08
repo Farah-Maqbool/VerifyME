@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VerifyME</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>VerifyME - Identity Verification</h1>
+
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+
+        <div class="controls">
+            <button id="captureBtn">Capture & Verify</button>
+        </div>
+
+        <div id="result" class="result-box"></div>
+    </div>
+
+    <script src="/static/js/camera.js"></script>
+    <script src="/static/js/verify.js"></script>
+</body>
+</html>
