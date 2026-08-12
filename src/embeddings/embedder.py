@@ -1,14 +1,25 @@
 import cv2
 import numpy as np
 import os
+from insightface.app import FaceAnalysis
 from insightface.model_zoo import model_zoo
 
-MODEL_PATH = os.path.expanduser("~/.insightface/models/buffalo_l/w600k_r50.onnx")
+MODEL_DIR = os.path.expanduser("~/.insightface/models/buffalo_l")
+MODEL_PATH = os.path.join(MODEL_DIR, "w600k_r50.onnx")
+
+# If the model files aren't present on disk (e.g. a fresh cloud deployment
+# with no local cache), trigger InsightFace's own downloader by initializing
+# FaceAnalysis once. This downloads the full buffalo_l pack (~280MB) the
+# same way it did automatically the very first time this ran locally.
+if not os.path.exists(MODEL_PATH):
+    _bootstrap_app = FaceAnalysis(providers=['CPUExecutionProvider'])
+    _bootstrap_app.prepare(ctx_id=0)
 
 _recognition_model = model_zoo.get_model(MODEL_PATH)
 _recognition_model.prepare(ctx_id=0)
 
 EMBEDDING_INPUT_SIZE = 112
+
 
 def get_embedding(crop):
     if crop is None or crop.size == 0:
